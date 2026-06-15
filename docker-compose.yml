@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: logmonitor_db
+    environment:
+      POSTGRES_DB: log_monitor
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5433:5432"  # Mapped to 5433 on the host to avoid conflicts with native PostgreSQL on 5432
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d log_monitor"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: src/LogMonitor.API/Dockerfile
+    container_name: logmonitor_backend
+    environment:
+      ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=log_monitor;Username=postgres;Password=password;"
+      ASPNETCORE_ENVIRONMENT: Development
+    ports:
+      - "5000:5000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: logmonitor_frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  agent:
+    build:
+      context: .
+      dockerfile: src/LogMonitor.Agent/Dockerfile
+    container_name: logmonitor_agent
+    environment:
+      API_URL: "http://backend:5000/api/logs"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
